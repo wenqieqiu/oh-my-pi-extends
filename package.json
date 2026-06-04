@@ -1,0 +1,9 @@
+{
+  "name": "omp-token-speed-display",
+  "version": "1.0.0",
+  "description": "Display real-time token generation speed during AI streaming in oh-my-pi TUI",
+  "type": "module",
+  "omp": {
+    "extensions": ["index.ts"]
+  }
+}
