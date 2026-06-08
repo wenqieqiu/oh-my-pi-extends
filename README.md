@@ -1,8 +1,6 @@
 # oh-my-pi-extends
 
-oh-my-pi 扩展：在 TUI 编辑器上方实时显示 AI token 生成速度。
-
-当 AI 正在输出时，在编辑器（输入框）上方显示实时速度（如 `34.2tok/s`）；输出完成后，更新为本次生成的平均速度，直到下次 AI 生成时自动清除。
+oh-my-pi 扩展
 
 ## 安装
 
@@ -41,18 +39,6 @@ omp -e /path/to/oh-my-pi-extends
 将整个目录复制到目标机器，使用方式 1 或 3 加载。
 
 ## 工作原理
-
-| 事件 | 行为 |
-|---|---|
-| `message_start` (assistant) | 记录开始时间，清除旧速度 |
-| `message_update` | 如有 `usage.output` 数据，实时计算并显示速度 |
-| `message_end` (assistant) | 用 `msg.duration` 计算最终平均速度 |
-
-速度 = `output_tokens × 1000 / elapsed(ms)`，格式 `X.Xtok/s`。
-
-速度显示在编辑器上方（输入框与聊天区域之间的 widget 区），每次 assistant 消息结束后更新，下次开始时清除。
-
-> **注意**：`message_update` 期间是否显示实时速度取决于 provider 是否在流式过程中返回 `usage.output` 数据。多数 provider 只在消息结束时才提供用量，因此实时速度可能仅在最后一条 `message_update` 事件（toolcall_end/text_end）时出现。
 
 ## 项目结构
 
