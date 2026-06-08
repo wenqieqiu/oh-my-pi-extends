@@ -6,9 +6,9 @@ OMP 配置一键导出/导入扩展。
 
 ## 命令
 
-| 命令 | 功能 |
-|---|---|
-| `/export-config` | 选择配置项目 → 导出为 `tar.gz` |
+| 命令             | 功能                                                |
+| ---------------- | --------------------------------------------------- |
+| `/export-config` | 选择配置项目 → 导出为 `tar.gz`                      |
 | `/import-config` | 选择备份文件 → 选择还原项目 → 自动备份旧配置 → 还原 |
 
 ## 安装
@@ -35,6 +35,22 @@ extensions:
   - "C:/Users/xxx/oh-my-pi-extends"
 ```
 
+## 卸载
+
+### 方式 1 / 方式 2：通过 link 或 GitHub 安装
+
+```bash
+omp plugin uninstall oh-my-pi-extends
+```
+
+### 方式 3：通过配置文件加载
+
+编辑 `~/.omp/agent/config.yml`，移除 `extensions` 列表中对应的路径，保存后重启 OMP。
+
+### 方式 4：目录复制
+
+删除复制的目录即可。如果通过 `omp plugin link` 注册过，需先执行 `omp plugin uninstall oh-my-pi-extends`。
+
 ## 使用流程
 
 ### 导出
@@ -54,14 +70,14 @@ extensions:
 
 ## 可导出的配置项目
 
-| 项目 | 内容 |
-|---|---|
-| config.yml | 主配置：模型、状态栏、扩展路径等 |
-| APPEND_SYSTEM.md | 追加到系统提示的自定义指令 |
-| extensions/ | 所有已安装的 TypeScript 扩展 |
-| skills/ | 自定义 agent 技能 |
-| models.db | 模型提供商和 API 端点 |
-| agent.db | Agent 持久化数据 |
+| 项目             | 内容                             |
+| ---------------- | -------------------------------- |
+| config.yml       | 主配置：模型、状态栏、扩展路径等 |
+| APPEND_SYSTEM.md | 追加到系统提示的自定义指令       |
+| extensions/      | 所有已安装的 TypeScript 扩展     |
+| skills/          | 自定义 agent 技能                |
+| models.db        | 模型提供商和 API 端点            |
+| agent.db         | Agent 持久化数据                 |
 
 ## 项目结构
 
