@@ -24,7 +24,7 @@ omp plugin link /path/to/oh-my-pi-extends
 推送到 GitHub 后：
 
 ```bash
-omp plugin install github:你的用户名/oh-my-pi-extends
+omp plugin install https://github.com/wenqieqiu/oh-my-pi-extends
 ```
 
 ### 方式 3：配置文件加载
