@@ -1,4 +1,4 @@
-# omp-token-speed-display
+# oh-my-pi-extends
 
 oh-my-pi 扩展：在 TUI 编辑器上方实时显示 AI token 生成速度。
 
@@ -9,7 +9,7 @@ oh-my-pi 扩展：在 TUI 编辑器上方实时显示 AI token 生成速度。
 ### 方式 1：本地 link（开发/单机用）
 
 ```bash
-omp plugin link /path/to/omp-token-speed-display
+omp plugin link /path/to/oh-my-pi-extends
 ```
 
 要求：插件目录必须在当前工作目录下。
@@ -19,7 +19,7 @@ omp plugin link /path/to/omp-token-speed-display
 将本项目推送到 GitHub 后：
 
 ```bash
-omp plugin install github:你的用户名/omp-token-speed-display
+omp plugin install github:你的用户名/oh-my-pi-extends
 ```
 
 ### 方式 3：设置中配置扩展路径
@@ -27,13 +27,13 @@ omp plugin install github:你的用户名/omp-token-speed-display
 ```yaml
 # ~/.omp/agent/config.yml
 extensions:
-  - "C:/Users/xxx/omp-token-speed-display"
+  - "C:/Users/xxx/oh-my-pi-extends"
 ```
 
 或通过 CLI 临时加载：
 
 ```bash
-omp -e /path/to/omp-token-speed-display
+omp -e /path/to/oh-my-pi-extends
 ```
 
 ### 方式 4：目录复制
@@ -57,7 +57,7 @@ omp -e /path/to/omp-token-speed-display
 ## 项目结构
 
 ```
-omp-token-speed-display/
+oh-my-pi-extends/
 ├── package.json    # npm package manifest，omp.extensions 指向入口
 ├── index.ts        # 扩展源码
 └── README.md       # 本文件
