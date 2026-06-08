@@ -151,8 +151,8 @@ export function extractTar(
 
     off += BLOCK;
 
-    if (size > 0 && (!filter || filter(name))) {
-      files.set(name.split("\0")[0], buf.slice(off, off + size));
+    if (!filter || filter(name)) {
+      files.set(name.split("\0")[0], size > 0 ? buf.slice(off, off + size) : new Uint8Array(0));
     }
 
     off += padToBlock(size);

@@ -5,16 +5,15 @@
  *   /export-config   — export OMP configuration to a .tar.gz file
  *   /import-config   — restore from a previously exported .tar.gz file
  *
- * Built with zero external dependencies.
+ * Built with zero external dependencies. Uses Bun native file APIs.
  */
 import type { ExtensionAPI, ExtensionCommandContext } from "@oh-my-pi/pi-coding-agent";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { CONFIG_ITEMS, type ConfigItem } from "./config-items";
 import { packTarGz, extractTarGz } from "./tar-utils";
 
-const AGENT = join(homedir(), ".omp", "agent");
+const HOME = Bun.env.HOME || Bun.env.USERPROFILE || "";
+const AGENT = join(HOME, ".omp", "agent");
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -26,7 +25,7 @@ function ts(): string {
 
 async function getOmpVersion(): Promise<string> {
   try {
-    const raw = await readFile(join(AGENT, "config.yml"), "utf-8");
+    const raw = await Bun.file(join(AGENT, "config.yml")).text();
     const m = raw.match(/^lastChangelogVersion:\s*(.+)$/m);
     return m?.[1]?.trim() ?? "unknown";
   } catch {
@@ -35,7 +34,7 @@ async function getOmpVersion(): Promise<string> {
 }
 
 function homeResolve(p: string): string {
-  return resolve(p.replace(/^~(?=$|[\\/])/, homedir()));
+  return resolve(p.replace(/^~(?=$|[\\/])/, HOME));
 }
 
 async function collectFiles(items: ConfigItem[]): Promise<Map<string, Uint8Array>> {
@@ -45,6 +44,20 @@ async function collectFiles(items: ConfigItem[]): Promise<Map<string, Uint8Array
     for (const [k, v] of files) all.set(k, v);
   }
   return all;
+}
+
+// ── Platform helper ───────────────────────────────────────────────
+
+function openFileInExplorer(path: string): void {
+  const platform = process.platform;
+  if (platform === "win32") {
+    Bun.spawnSync(["explorer", "/select,", resolve(path)]);
+  } else if (platform === "darwin") {
+    Bun.spawnSync(["open", "-R", path]);
+  } else {
+    const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ".";
+    Bun.spawnSync(["xdg-open", dir]);
+  }
 }
 
 // ── Extension entry ───────────────────────────────────────────────
@@ -104,14 +117,13 @@ async function exportConfig(ctx: ExtensionCommandContext) {
     return;
   }
 
-  const defaultPath = join(homedir(), `omp-config-export-${ts()}.tar.gz`);
-  const rawPath = await ctx.ui.input("保存路径", defaultPath);
+  const defaultPath = join(HOME, `omp-config-export-${ts()}.tar.gz`);
+  const rawPath = await ctx.ui.input("保存路径（直接回车使用默认路径）", defaultPath);
   const target = homeResolve(rawPath || defaultPath);
 
   ctx.ui.setStatus("config-export", "正在收集文件...");
   const files = await collectFiles(selected);
 
-  // Attach manifest
   const manifest = JSON.stringify({
     formatVersion: 1,
     exportedAt: new Date().toISOString(),
@@ -123,21 +135,30 @@ async function exportConfig(ctx: ExtensionCommandContext) {
   ctx.ui.setStatus("config-export", "正在压缩...");
   const archive = packTarGz(files);
 
-  const dir = target.replace(/[/\\][^/\\]*$/, "");
-  await mkdir(dir, { recursive: true });
-  await writeFile(target, archive);
+  await Bun.write(target, archive);
 
   ctx.ui.setStatus("config-export", undefined);
+
+  const fileCount = files.size - 1;
+  const sizeKB = (archive.length / 1024).toFixed(1);
   ctx.ui.notify(
-    `导出完成！\n文件: ${target}\n共 ${files.size - 1} 个文件 (${(archive.length / 1024).toFixed(1)} KB)`,
+    `导出完成！\n文件: ${target}\n共 ${fileCount} 个文件 (${sizeKB} KB)`,
     "info",
   );
+
+  const openLocation = await ctx.ui.confirm(
+    "导出完成",
+    `文件: ${target}\n共 ${fileCount} 个文件 (${sizeKB} KB)\n\n是否在文件管理器中打开所在位置？`,
+  );
+  if (openLocation) {
+    openFileInExplorer(target);
+  }
 }
 
 // ── Import logic ──────────────────────────────────────────────────
 
 async function importConfig(ctx: ExtensionCommandContext) {
-  const rawPath = await ctx.ui.input("备份文件路径", join(homedir(), "omp-config-export-*.tar.gz"));
+  const rawPath = await ctx.ui.input("备份文件路径", join(HOME, "omp-config-export-*.tar.gz"));
   if (!rawPath) {
     ctx.ui.notify("未指定文件，还原已取消。", "warning");
     return;
@@ -145,19 +166,16 @@ async function importConfig(ctx: ExtensionCommandContext) {
 
   const src = homeResolve(rawPath);
 
-  // Read file
   ctx.ui.setStatus("config-import", "正在读取备份文件...");
   let compressed: Uint8Array;
   try {
-    const buf = await readFile(src);
-    compressed = new Uint8Array(buf);
+    compressed = new Uint8Array(await Bun.file(src).arrayBuffer());
   } catch {
     ctx.ui.setStatus("config-import", undefined);
     ctx.ui.notify("无法读取文件，请检查路径是否正确。", "error");
     return;
   }
 
-  // Validate & extract
   let archiveFiles: Map<string, Uint8Array>;
   try {
     archiveFiles = extractTarGz(compressed);
@@ -167,7 +185,6 @@ async function importConfig(ctx: ExtensionCommandContext) {
     return;
   }
 
-  // Read manifest
   const manifestRaw = archiveFiles.get("manifest.json");
   if (!manifestRaw) {
     ctx.ui.setStatus("config-import", undefined);
@@ -190,7 +207,6 @@ async function importConfig(ctx: ExtensionCommandContext) {
     return;
   }
 
-  // Version check
   const currentVer = await getOmpVersion();
   if (manifest.ompVersion && manifest.ompVersion !== currentVer) {
     const ok = await ctx.ui.confirm(
@@ -203,7 +219,6 @@ async function importConfig(ctx: ExtensionCommandContext) {
     }
   }
 
-  // Determine what can be restored
   const available = CONFIG_ITEMS.filter((i) => manifest.items?.includes(i.id));
   if (available.length === 0) {
     ctx.ui.setStatus("config-import", undefined);
@@ -226,14 +241,13 @@ async function importConfig(ctx: ExtensionCommandContext) {
     return;
   }
 
-  // ── Backup current config ───────────────────────────────────
   let backupPath: string | null = null;
   ctx.ui.setStatus("config-import", "正在备份现有配置...");
   try {
     const backupFiles = await collectFiles(selected);
     if (backupFiles.size > 0) {
-      backupPath = join(homedir(), `.omp-agent-backup-${ts()}.tar.gz`);
-      await writeFile(backupPath, packTarGz(backupFiles));
+      backupPath = join(HOME, `.omp-agent-backup-${ts()}.tar.gz`);
+      await Bun.write(backupPath, packTarGz(backupFiles));
     }
   } catch {
     const cont = await ctx.ui.confirm(
@@ -246,7 +260,6 @@ async function importConfig(ctx: ExtensionCommandContext) {
     }
   }
 
-  // ── Restore ─────────────────────────────────────────────────
   ctx.ui.setStatus("config-import", "正在还原...");
   let restored = 0;
   for (const item of selected) {
@@ -263,13 +276,41 @@ async function importConfig(ctx: ExtensionCommandContext) {
   );
 }
 
-// ── Per-item selection ────────────────────────────────────────────
+// ── Multi-select with checkbox ────────────────────────────────────
 
 async function pickItems(ctx: ExtensionCommandContext, items: ConfigItem[]): Promise<ConfigItem[]> {
-  const picked: ConfigItem[] = [];
-  for (const item of items) {
-    const ok = await ctx.ui.confirm("选择项目", `是否包含 ${item.label}？\n${item.description}`);
-    if (ok) picked.push(item);
+  if (items.length === 0) return [];
+
+  const opts = items.map((item) => ({
+    label: item.label,
+    description: item.description,
+  }));
+
+  const doneLabel = "✅ 完成选择";
+  const allOpts = [...opts, { label: doneLabel, description: "确认当前选择并继续" }];
+  const markableCount = opts.length;
+  const checked = new Set<number>();
+
+  while (true) {
+    const choice = await ctx.ui.select(
+      "选择配置项目（↑↓ 导航  Enter 切换勾选）",
+      allOpts,
+      {
+        selectionMarker: "checkbox",
+        checkedIndices: [...checked],
+        markableCount,
+        helpText: "↑↓ 导航  Enter 切换勾选  选择「✅ 完成选择」确认  Esc 取消",
+      },
+    );
+
+    if (!choice || choice === doneLabel) break;
+
+    const idx = allOpts.findIndex((o) => o.label === choice);
+    if (idx >= 0 && idx < markableCount) {
+      if (checked.has(idx)) checked.delete(idx);
+      else checked.add(idx);
+    }
   }
-  return picked;
+
+  return items.filter((_, i) => checked.has(i));
 }
