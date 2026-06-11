@@ -20,7 +20,9 @@ export interface ConfigItem {
   estimateSize(): Promise<string>;
 }
 
-const AGENT = join(Bun.env.HOME || Bun.env.USERPROFILE || "", ".omp", "agent");
+function getAgent(): string {
+  return join(Bun.env.HOME || Bun.env.USERPROFILE || "", ".omp", "agent");
+}
 
 /** Walk a directory tree using Bun.Glob, yielding relative paths under `prefix`. */
 async function* walkDir(dir: string, prefix: string): AsyncGenerator<[string, Uint8Array]> {
@@ -64,15 +66,15 @@ export const CONFIG_ITEMS: ConfigItem[] = [
     label: "主配置 (config.yml)",
     description: "模型设置、状态栏布局、扩展路径等关键配置",
     async exportFiles() {
-      const content = await Bun.file(join(AGENT, "config.yml")).arrayBuffer();
+      const content = await Bun.file(join(getAgent(), "config.yml")).arrayBuffer();
       return new Map([["config.yml", new Uint8Array(content)]]);
     },
     async importFiles(files) {
       const c = files.get("config.yml");
-      if (c) await Bun.write(join(AGENT, "config.yml"), c);
+      if (c) await Bun.write(join(getAgent(), "config.yml"), c);
     },
     async estimateSize() {
-      return formatFileSize(join(AGENT, "config.yml"));
+      return formatFileSize(join(getAgent(), "config.yml"));
     },
   },
   {
@@ -80,7 +82,7 @@ export const CONFIG_ITEMS: ConfigItem[] = [
     label: "系统提示 (APPEND_SYSTEM.md)",
     description: "追加到系统提示的自定义指令",
     async exportFiles() {
-      const p = join(AGENT, "APPEND_SYSTEM.md");
+      const p = join(getAgent(), "APPEND_SYSTEM.md");
       try {
         const content = await Bun.file(p).arrayBuffer();
         return new Map([["APPEND_SYSTEM.md", new Uint8Array(content)]]);
@@ -90,10 +92,10 @@ export const CONFIG_ITEMS: ConfigItem[] = [
     },
     async importFiles(files) {
       const c = files.get("APPEND_SYSTEM.md");
-      if (c) await Bun.write(join(AGENT, "APPEND_SYSTEM.md"), c);
+      if (c) await Bun.write(join(getAgent(), "APPEND_SYSTEM.md"), c);
     },
     async estimateSize() {
-      return formatFileSize(join(AGENT, "APPEND_SYSTEM.md"));
+      return formatFileSize(join(getAgent(), "APPEND_SYSTEM.md"));
     },
   },
   {
@@ -102,7 +104,7 @@ export const CONFIG_ITEMS: ConfigItem[] = [
     description: "所有已安装的 TypeScript 扩展",
     async exportFiles() {
       const files = new Map<string, Uint8Array>();
-      const dir = join(AGENT, "extensions");
+      const dir = join(getAgent(), "extensions");
       try {
         for await (const [path, content] of walkDir(dir, "extensions/")) {
           files.set(path, content);
@@ -115,12 +117,12 @@ export const CONFIG_ITEMS: ConfigItem[] = [
     async importFiles(files) {
       const extFiles = new Map([...files].filter(([p]) => p.startsWith("extensions/")));
       if (extFiles.size > 0) {
-        await writeTree(AGENT, extFiles);
+        await writeTree(getAgent(), extFiles);
       }
     },
     async estimateSize() {
       try {
-        const dir = join(AGENT, "extensions");
+        const dir = join(getAgent(), "extensions");
         let total = 0;
         const glob = new Bun.Glob("**/*");
         for await (const raw of glob.scan({ cwd: dir })) {
@@ -139,7 +141,7 @@ export const CONFIG_ITEMS: ConfigItem[] = [
     description: "自定义 agent 技能，定义行为和工作流",
     async exportFiles() {
       const files = new Map<string, Uint8Array>();
-      const dir = join(AGENT, "skills");
+      const dir = join(getAgent(), "skills");
       try {
         for await (const [path, content] of walkDir(dir, "skills/")) {
           files.set(path, content);
@@ -152,12 +154,12 @@ export const CONFIG_ITEMS: ConfigItem[] = [
     async importFiles(files) {
       const skillFiles = new Map([...files].filter(([p]) => p.startsWith("skills/")));
       if (skillFiles.size > 0) {
-        await writeTree(AGENT, skillFiles);
+        await writeTree(getAgent(), skillFiles);
       }
     },
     async estimateSize() {
       try {
-        const dir = join(AGENT, "skills");
+        const dir = join(getAgent(), "skills");
         let total = 0;
         const glob = new Bun.Glob("**/*");
         for await (const raw of glob.scan({ cwd: dir })) {
@@ -175,15 +177,15 @@ export const CONFIG_ITEMS: ConfigItem[] = [
     label: "模型数据库 (models.db)",
     description: "已配置的模型提供商和 API 端点",
     async exportFiles() {
-      const content = await Bun.file(join(AGENT, "models.db")).arrayBuffer();
+      const content = await Bun.file(join(getAgent(), "models.db")).arrayBuffer();
       return new Map([["models.db", new Uint8Array(content)]]);
     },
     async importFiles(files) {
       const c = files.get("models.db");
-      if (c) await Bun.write(join(AGENT, "models.db"), c);
+      if (c) await Bun.write(join(getAgent(), "models.db"), c);
     },
     async estimateSize() {
-      return formatFileSize(join(AGENT, "models.db"));
+      return formatFileSize(join(getAgent(), "models.db"));
     },
   },
   {
@@ -191,15 +193,15 @@ export const CONFIG_ITEMS: ConfigItem[] = [
     label: "Agent 数据库 (agent.db)",
     description: "Agent 内部状态和持久化数据",
     async exportFiles() {
-      const content = await Bun.file(join(AGENT, "agent.db")).arrayBuffer();
+      const content = await Bun.file(join(getAgent(), "agent.db")).arrayBuffer();
       return new Map([["agent.db", new Uint8Array(content)]]);
     },
     async importFiles(files) {
       const c = files.get("agent.db");
-      if (c) await Bun.write(join(AGENT, "agent.db"), c);
+      if (c) await Bun.write(join(getAgent(), "agent.db"), c);
     },
     async estimateSize() {
-      return formatFileSize(join(AGENT, "agent.db"));
+      return formatFileSize(join(getAgent(), "agent.db"));
     },
   },
 ];

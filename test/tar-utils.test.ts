@@ -6,7 +6,7 @@
  * error handling for invalid input.
  */
 import { describe, expect, test } from "bun:test";
-import { packTar, extractTar, listTar, packTarGz, extractTarGz, listTarGz } from "./tar-utils";
+import { packTar, extractTar, listTar, packTarGz, extractTarGz, listTarGz } from "../src/tar-utils";
 
 describe("packTar / extractTar", () => {
   test("roundtrip empty map produces empty archive", () => {

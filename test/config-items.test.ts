@@ -1,33 +1,43 @@
 /**
  * Integration tests for config-items.
  *
- * Must be run with USERPROFILE (Windows) or HOME (Unix) set to a
- * temporary directory so that `Bun.env` resolves to the test sandbox.
- *
- * Example (Windows, cmd):
- *   set USERPROFILE=C:\tmp\omp-test-sandbox && bun test src\config-items.test.ts
+ * All file operations happen in an isolated temp directory.
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { rm } from "fs/promises";
+import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { CONFIG_ITEMS } from "./config-items";
+import { tmpdir } from "node:os";
+import type { ConfigItem } from "../src/config-items";
 
-const AGENT = join(Bun.env.HOME || Bun.env.USERPROFILE || "", ".omp", "agent");
+let sandbox: string;
+let agentDir: string;
+let CONFIG_ITEMS: ConfigItem[];
+
+function getAgentDir(): string {
+  return join(Bun.env.HOME || Bun.env.USERPROFILE || "", ".omp", "agent");
+}
 
 beforeAll(async () => {
+  sandbox = mkdtempSync(join(tmpdir(), "omp-test-config-"));
+  agentDir = join(sandbox, ".omp", "agent");
+  Bun.env.HOME = sandbox;
+
+  // Import AFTER setting HOME so the module uses sandbox path
+  const mod = await import("../src/config-items");
+  CONFIG_ITEMS = mod.CONFIG_ITEMS;
+
   // Bun.write auto-creates parent directories
-  await Bun.write(join(AGENT, "config.yml"), "lastChangelogVersion: v15.10.4\n");
-  await Bun.write(join(AGENT, "APPEND_SYSTEM.md"), "# custom instructions\n");
-  await Bun.write(join(AGENT, "extensions", "hello.ts"), 'export default () => {};\n');
-  await Bun.write(join(AGENT, "extensions", "sub", "nested.js"), "// nested\n");
-  await Bun.write(join(AGENT, "skills", "custom.md"), "# Custom Skill\n");
-  await Bun.write(join(AGENT, "models.db"), "");
-  await Bun.write(join(AGENT, "agent.db"), "{}");
+  await Bun.write(join(agentDir, "config.yml"), "lastChangelogVersion: v15.10.4\n");
+  await Bun.write(join(agentDir, "APPEND_SYSTEM.md"), "# custom instructions\n");
+  await Bun.write(join(agentDir, "extensions", "hello.ts"), 'export default () => {};\n');
+  await Bun.write(join(agentDir, "extensions", "sub", "nested.js"), "// nested\n");
+  await Bun.write(join(agentDir, "skills", "custom.md"), "# Custom Skill\n");
+  await Bun.write(join(agentDir, "models.db"), "");
+  await Bun.write(join(agentDir, "agent.db"), "{}");
 });
 
-afterAll(async () => {
-  const TMP = Bun.env.HOME || Bun.env.USERPROFILE || "";
-  if (TMP) await rm(TMP, { recursive: true, force: true });
+afterAll(() => {
+  if (sandbox) rmSync(sandbox, { recursive: true, force: true });
 });
 
 describe("ConfigItem.exportFiles", () => {
@@ -87,7 +97,7 @@ describe("ConfigItem.importFiles roundtrip", () => {
     const exported = new Map<string, Uint8Array>();
     exported.set("config.yml", new TextEncoder().encode("replaced: true\n"));
     await item.importFiles(exported);
-    const raw = await Bun.file(join(AGENT, "config.yml")).text();
+    const raw = await Bun.file(join(agentDir, "config.yml")).text();
     expect(raw).toBe("replaced: true\n");
   });
 
@@ -96,7 +106,7 @@ describe("ConfigItem.importFiles roundtrip", () => {
     const files = new Map<string, Uint8Array>();
     files.set("extensions/new_file.ts", new TextEncoder().encode("export const x = 1;\n"));
     await item.importFiles(files);
-    const raw = await Bun.file(join(AGENT, "extensions", "new_file.ts")).text();
+    const raw = await Bun.file(join(agentDir, "extensions", "new_file.ts")).text();
     expect(raw).toBe("export const x = 1;\n");
   });
 
@@ -105,7 +115,7 @@ describe("ConfigItem.importFiles roundtrip", () => {
     const files = new Map<string, Uint8Array>();
     files.set("skills/new_skill.md", new TextEncoder().encode("# New Skill\n"));
     await item.importFiles(files);
-    const raw = await Bun.file(join(AGENT, "skills", "new_skill.md")).text();
+    const raw = await Bun.file(join(agentDir, "skills", "new_skill.md")).text();
     expect(raw).toBe("# New Skill\n");
   });
 
@@ -114,7 +124,7 @@ describe("ConfigItem.importFiles roundtrip", () => {
     const files = new Map<string, Uint8Array>();
     files.set("models.db", new TextEncoder().encode("updated"));
     await item.importFiles(files);
-    const raw = await Bun.file(join(AGENT, "models.db")).text();
+    const raw = await Bun.file(join(agentDir, "models.db")).text();
     expect(raw).toBe("updated");
   });
 
@@ -123,7 +133,7 @@ describe("ConfigItem.importFiles roundtrip", () => {
     const files = new Map<string, Uint8Array>();
     files.set("agent.db", new TextEncoder().encode("updated"));
     await item.importFiles(files);
-    const raw = await Bun.file(join(AGENT, "agent.db")).text();
+    const raw = await Bun.file(join(agentDir, "agent.db")).text();
     expect(raw).toBe("updated");
   });
 });
