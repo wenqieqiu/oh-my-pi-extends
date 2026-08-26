@@ -33,8 +33,11 @@ interface Bump {
   kind: "major" | "minor" | "patch";
 }
 
-/** Parse the commit subject for a Conventional Commit type bump. */
-function parseBump(subject: string, body: string): Bump | null {
+/**
+ * Parse the commit subject for a Conventional Commit type bump.
+ * Exported for unit testing; not part of the hook's public surface.
+ */
+export function parseBump(subject: string, body: string): Bump | null {
   const m = subject.match(/^([a-zA-Z]+)(?:\([^)]*\))?(!)?:/);
   if (!m) return null;
   const type = m[1];
@@ -48,7 +51,7 @@ function parseBump(subject: string, body: string): Bump | null {
 }
 
 /** Bump a semver string's given component, returning the new version. */
-function bumpVersion(version: string, kind: Bump["kind"]): string {
+export function bumpVersion(version: string, kind: Bump["kind"]): string {
   const [major = 0, minor = 0, patch = 0] = version.split(".").map(Number);
   switch (kind) {
     case "major":
@@ -69,6 +72,10 @@ function amendVersionIntoCommit(): void {
   });
   if (amend.exitCode !== 0) {
     console.error("[bump-version] amend failed:", amend.stderr.toString().trim());
+    // Keep the tree consistent: a version bumped on disk but absent from the
+    // commit is a worse state than no bump at all (it would silently ride in
+    // on the next commit). Revert so the commit and working tree agree.
+    Bun.spawnSync(["git", "checkout", "--", "package.json"]);
   }
 }
 
@@ -98,9 +105,12 @@ function main(): void {
   amendVersionIntoCommit();
 }
 
-try {
-  main();
-} catch (err) {
-  // A version-bump error must never fail the commit.
-  console.error("[bump-version] error:", err instanceof Error ? err.message : err);
+// Guard so importing this module in tests does not run the hook.
+if (import.meta.main) {
+  try {
+    main();
+  } catch (err) {
+    // A version-bump error must never fail the commit.
+    console.error("[bump-version] error:", err instanceof Error ? err.message : err);
+  }
 }
