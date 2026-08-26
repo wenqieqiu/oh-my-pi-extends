@@ -1,25 +1,3 @@
-# Agent Configuration
-
-## Agent skills
-
-### Issue tracker
-
-Issues are tracked as local markdown under .scratch/. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Five canonical triage labels use default names. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context layout: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
-
-## Development conventions
-
-### Lint before commit
-
-After any code modification, run `bun run lint` and fix all reported issues. Do not commit code with unresolved lint errors.
-
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 

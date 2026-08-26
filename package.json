@@ -10,6 +10,7 @@
   "scripts": {
     "oxlint": "oxlint --fix src/",
     "oxfmt": "oxfmt --write src/",
+    "fmt:check": "oxfmt --check src/",
     "check": "bun run tsc && bun run lint && bun run fmt:check",
     "lint": "bun run oxlint && bun run oxfmt"
   },
