@@ -14,8 +14,13 @@
  * Other types (`docs:`, `chore:`, `refactor:`, `test:`, …) and messages that
  * don't parse as Conventional Commits leave the version untouched.
  *
- * The bump is written to the working tree only — a post-commit hook cannot
- * amend the commit it just created, so the change rides in on the next commit.
+ * After bumping, the script stages `package.json` and amends it into the
+ * commit just created (`git commit --amend --no-edit`), so the version change
+ * ships inside the commit itself rather than lingering in the working tree.
+ * The amend runs with `SKIP_SIMPLE_GIT_HOOKS=1`, so the hook does not re-fire
+ * in a loop. A commit that is already pushed cannot be amended without
+ * rewriting history — only local, unpushed commits change.
+ *
  * Non-interactive by design: prints one line on a bump, and stays silent when
  * it skips. Never exits non-zero, so a bump error never fails the commit.
  */
@@ -55,6 +60,18 @@ function bumpVersion(version: string, kind: Bump["kind"]): string {
   }
 }
 
+function amendVersionIntoCommit(): void {
+  // SKIP_SIMPLE_GIT_HOOKS=1 prevents the amend's post-commit from re-running
+  // this hook in an infinite loop.
+  Bun.spawnSync(["git", "add", "package.json"]);
+  const amend = Bun.spawnSync(["git", "commit", "--amend", "--no-edit"], {
+    env: { ...process.env, SKIP_SIMPLE_GIT_HOOKS: "1" },
+  });
+  if (amend.exitCode !== 0) {
+    console.error("[bump-version] amend failed:", amend.stderr.toString().trim());
+  }
+}
+
 function main(): void {
   // post-commit runs after HEAD is the new commit.
   const message = Bun.spawnSync(["git", "log", "-1", "--format=%B"]).stdout.toString();
@@ -74,12 +91,11 @@ function main(): void {
   const newVersion = bumpVersion(oldVersion, bump.kind);
   if (newVersion === oldVersion) return;
 
-  const updated = raw.replace(
-    versionLine[0],
-    `${versionLine[1]}${newVersion}${versionLine[3]}`,
-  );
+  const updated = raw.replace(versionLine[0], `${versionLine[1]}${newVersion}${versionLine[3]}`);
   writeFileSync(PACKAGE_JSON, updated);
   console.log(`[bump-version] ${oldVersion} \u2192 ${newVersion} (${bump.kind})`);
+
+  amendVersionIntoCommit();
 }
 
 try {

@@ -135,7 +135,8 @@ oh-my-pi-extends/
 | `docs:` / `chore:` / `refactor:` / `test:` 等或无法解析的消息 | 不更新 |
 
 - 钩子在 `bun install`（触发 `prepare` 脚本）时自动安装。
-- 更新**落到工作区**（未提交）——post-commit 无法修改刚产生的提交，版本号变更随下一次提交入库。
+- 版本号更新后**自动 `git add` 并 `git commit --amend` 并入刚产生的提交**，因此版本号随该提交一起入库，工作区保持干净。
+- 仅对**本地未推送**的提交生效；amend 不会改写已推送的历史。
 - 跳过本次钩子：`SKIP_SIMPLE_GIT_HOOKS=1 git commit ...`。
 
 ## 开发说明
