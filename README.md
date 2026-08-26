@@ -113,6 +113,8 @@ oh-my-pi-extends/
 ├── docs/
 │   ├── agents/           # 技能文档
 │   └── adr/              # 架构决策记录
+├── scripts/
+│   └── bump-version.ts   # post-commit 版本号自动更新脚本
 ├── package.json          # 插件清单，omp.extensions → src/index.ts
 ├── bun.lock              # Bun lockfile
 ├── tsconfig.json         # TypeScript 配置
