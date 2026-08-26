@@ -121,6 +121,21 @@ oh-my-pi-extends/
 └── README.md             # 本文件
 ```
 
+## 版本号自动更新
+
+提交后由 `simple-git-hooks` 的 `post-commit` 钩子自动更新 `package.json` 版本号（按 Conventional Commits 类型）：
+
+| 提交 | 版本号变更 |
+| ---- | ---------- |
+| `fix:` | patch+（`1.2.3` → `1.2.4`） |
+| `feat:` | minor+（`1.2.3` → `1.3.0`） |
+| 破坏性变更（`feat!:`, `fix!:`, 或正文含 `BREAKING CHANGE:`） | major+（`1.2.3` → `2.0.0`） |
+| `docs:` / `chore:` / `refactor:` / `test:` 等或无法解析的消息 | 不更新 |
+
+- 钩子在 `bun install`（触发 `prepare` 脚本）时自动安装。
+- 更新**落到工作区**（未提交）——post-commit 无法修改刚产生的提交，版本号变更随下一次提交入库。
+- 跳过本次钩子：`SKIP_SIMPLE_GIT_HOOKS=1 git commit ...`。
+
 ## 开发说明
 
 本项目仅支持 **Bun** 作为包管理器和运行时。不要使用 npm/pnpm/node（被 ADR-0001 锁定，原因见 `docs/adr/0001-lock-bun-as-package-manager-and-runtime.md`）。
