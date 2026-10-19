@@ -485,7 +485,9 @@ describe("handleAgentEnd", () => {
 
     expect(called).toBe(false);
     expect(calls.length).toBe(0);
-    expect(SUMMARY_WAIT_TIMEOUT_MS).toBeGreaterThan(0);
+    // The host stays busy after a settle (title / recap / todo HUD) well past 10s;
+    // lowering this back to single-digit seconds silently costs footers.
+    expect(SUMMARY_WAIT_TIMEOUT_MS).toBeGreaterThanOrEqual(20_000);
   });
 
   test("renders the model's answer as the two capped blocks", async () => {

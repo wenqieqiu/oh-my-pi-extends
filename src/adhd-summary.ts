@@ -21,10 +21,16 @@ export const SUMMARY_MESSAGE_TYPE = "adhd-summary";
 /** Hard cap for the summarizer call on its own. */
 export const SUMMARY_TIMEOUT_MS = 20_000;
 export const SUMMARY_MAX_TOKENS = 512;
-/** Longest the footer waits for the session to go idle before giving up. */
-export const SUMMARY_WAIT_TIMEOUT_MS = 10_000;
+/**
+ * Longest the footer waits for the session to go idle before giving up. The host
+ * keeps the session busy after a settle while it generates the title, the recap
+ * and the todo HUD, which measured >10s in practice and silently cost the footer;
+ * 25s covers that housekeeping while still dropping a footer whose reply the user
+ * has already moved past with a new prompt.
+ */
+export const SUMMARY_WAIT_TIMEOUT_MS = 25_000;
 /** The extension handler's own budget: the idle wait and the model call fit inside it. */
-const SUMMARY_HANDLER_BUDGET_MS = 30_000;
+const SUMMARY_HANDLER_BUDGET_MS = 45_000;
 /** Poll interval used while waiting for idle. */
 const WAIT_POLL_INTERVAL_MS = 25;
 /** Fixed section headers: the footer's layout belongs to the extension, not the model. */
