@@ -10,8 +10,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   PLUGIN_CONFIG_FILE,
+  DEFAULT_ADHD_SUMMARY_LANGUAGE,
   getAdhdSummaryEnabled,
+  getAdhdSummaryLanguage,
   setAdhdSummaryEnabled,
+  setAdhdSummaryLanguage,
 } from "../src/plugin-config";
 
 const sandbox = mkdtempSync(join(tmpdir(), "omp-plugin-config-"));
@@ -96,6 +99,54 @@ describe("setAdhdSummaryEnabled", () => {
 
     expect(JSON.parse(await Bun.file(join(dir, PLUGIN_CONFIG_FILE)).text())).toEqual({
       adhdSummary: { enabled: false },
+    });
+  });
+});
+
+describe("getAdhdSummaryLanguage", () => {
+  test("defaults to Chinese when the file or key is missing, blank, or not a string", async () => {
+    expect(await getAdhdSummaryLanguage(freshDir())).toBe(DEFAULT_ADHD_SUMMARY_LANGUAGE);
+    expect(DEFAULT_ADHD_SUMMARY_LANGUAGE).toBe("zh");
+
+    const dir = freshDir();
+    await Bun.write(join(dir, PLUGIN_CONFIG_FILE), '{"adhdSummary":{"language":"   "}}');
+    expect(await getAdhdSummaryLanguage(dir)).toBe("zh");
+    await Bun.write(join(dir, PLUGIN_CONFIG_FILE), '{"adhdSummary":{"language":42}}');
+    expect(await getAdhdSummaryLanguage(dir)).toBe("zh");
+  });
+
+  test("reads a configured language code or `follow`, trimmed", async () => {
+    const dir = freshDir();
+    await Bun.write(join(dir, PLUGIN_CONFIG_FILE), '{"adhdSummary":{"language":" en-US "}}');
+    expect(await getAdhdSummaryLanguage(dir)).toBe("en-US");
+    await Bun.write(join(dir, PLUGIN_CONFIG_FILE), '{"adhdSummary":{"language":"follow"}}');
+    expect(await getAdhdSummaryLanguage(dir)).toBe("follow");
+  });
+});
+
+describe("setAdhdSummaryLanguage", () => {
+  test("round-trips the language and keeps the toggle", async () => {
+    const dir = freshDir();
+
+    await setAdhdSummaryEnabled(false, dir);
+    await setAdhdSummaryLanguage("follow", dir);
+
+    expect(await getAdhdSummaryLanguage(dir)).toBe("follow");
+    expect(await getAdhdSummaryEnabled(dir)).toBe(false);
+    expect(JSON.parse(await Bun.file(join(dir, PLUGIN_CONFIG_FILE)).text())).toEqual({
+      adhdSummary: { enabled: false, language: "follow" },
+    });
+  });
+
+  test("keeps the language when the toggle is flipped afterwards", async () => {
+    const dir = freshDir();
+
+    await setAdhdSummaryLanguage("en", dir);
+    await setAdhdSummaryEnabled(true, dir);
+
+    expect(await getAdhdSummaryLanguage(dir)).toBe("en");
+    expect(JSON.parse(await Bun.file(join(dir, PLUGIN_CONFIG_FILE)).text())).toEqual({
+      adhdSummary: { language: "en", enabled: true },
     });
   });
 });

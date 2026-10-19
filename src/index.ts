@@ -7,7 +7,7 @@
  *   /export-config           — export OMP configuration to a .tar.gz file
  *   /import-config           — restore from a previously exported .tar.gz file
  *   /benchmark-token-speed   — test the current model's token output speed
- *   /adhd-summary            — toggle the ADHD-style summary footer (on / off / status)
+ *   /adhd-summary            — ADHD summary footer: on / off / status / lang <language|follow>
  *
  * Hooks:
  *   agent_end                — append the ADHD summary footer for terminal main-agent settles
@@ -22,7 +22,14 @@ import { handleAgentEnd } from "./adhd-summary";
 import { exportConfig } from "./export-config";
 import { importConfig } from "./import-config";
 import { runBenchmark, cancelBenchmark } from "./benchmark";
-import { getAdhdSummaryEnabled, setAdhdSummaryEnabled } from "./plugin-config";
+import {
+  ADHD_SUMMARY_LANGUAGE_FOLLOW,
+  DEFAULT_ADHD_SUMMARY_LANGUAGE,
+  getAdhdSummaryEnabled,
+  getAdhdSummaryLanguage,
+  setAdhdSummaryEnabled,
+  setAdhdSummaryLanguage,
+} from "./plugin-config";
 
 /** Status entry shown while the footer is off; cleared while it is on. */
 const ADHD_SUMMARY_OFF_STATUS = "ADHD 摘要: 关";
@@ -48,11 +55,29 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("adhd-summary", {
-    description: "开关 ADHD 风格摘要页脚（无参数切换，on / off / status）",
+    description: "开关 ADHD 风格摘要页脚（无参数切换；on / off / status / lang <语言|follow>）",
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       try {
-        const mode = args.trim().toLowerCase();
+        const raw = args.trim();
+        const mode = raw.toLowerCase();
         let enabled: boolean;
+
+        if (mode.startsWith("lang")) {
+          const language = raw.slice(4).trim();
+          if (!language) {
+            const current = await getAdhdSummaryLanguage();
+            const shown =
+              current === ADHD_SUMMARY_LANGUAGE_FOLLOW
+                ? `${ADHD_SUMMARY_LANGUAGE_FOLLOW}（跟随回复语言）`
+                : current;
+            ctx.ui.notify(`ADHD 摘要语言: ${shown}（默认 ${DEFAULT_ADHD_SUMMARY_LANGUAGE}）`);
+            return;
+          }
+          await setAdhdSummaryLanguage(language);
+          ctx.ui.notify(`ADHD 摘要语言已设为 ${language}`);
+          return;
+        }
+
         if (mode === "on" || mode === "off") {
           enabled = mode === "on";
           await setAdhdSummaryEnabled(enabled);
@@ -62,7 +87,7 @@ export default function (pi: ExtensionAPI) {
         } else if (mode === "status") {
           enabled = await getAdhdSummaryEnabled();
         } else {
-          ctx.ui.notify("用法: /adhd-summary [on|off|status]", "warning");
+          ctx.ui.notify("用法: /adhd-summary [on|off|status|lang <语言|follow>]", "warning");
           return;
         }
         ctx.ui.notify(`ADHD 摘要已${enabled ? "开启" : "关闭"}`);

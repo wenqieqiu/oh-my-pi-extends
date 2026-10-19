@@ -9,6 +9,7 @@ import {
   SUMMARY_MESSAGE_TYPE,
   SUMMARY_TIMEOUT_MS,
   SUMMARY_WAIT_TIMEOUT_MS,
+  buildSummarySystemPrompt,
   extractResponseText,
   findSummarySource,
   handleAgentEnd,
@@ -125,7 +126,7 @@ describe("handleAgentEnd", () => {
       pi,
       { messages: [assistantMessage([{ type: "text", text: "Did Y." }])] },
       ctx,
-      { isEnabled: async () => true, complete },
+      { isEnabled: async () => true, getLanguage: async () => "zh", complete },
     );
 
     expect(calls.length).toBe(1);
@@ -142,9 +143,38 @@ describe("handleAgentEnd", () => {
     expect(systemPrompt.length).toBeGreaterThan(0);
     expect(systemPrompt[0]).toContain("【精要结论】");
     expect(systemPrompt[0]).toContain("【下一步】");
+    // Default language is Chinese even though the summarized reply is English.
+    expect(systemPrompt[0]).toContain("Simplified Chinese");
+    expect(systemPrompt[0]).not.toContain("SAME LANGUAGE");
     expect(seenContext?.messages[0].content).toBe("Did Y.");
     expect(seenOptions?.disableReasoning).toBe(true);
     expect(seenOptions?.maxTokens).toBe(512);
+  });
+
+  test("uses the configured language for the prompt, not the reply's", async () => {
+    const { pi, ctx } = makeHarness();
+    let prompt = "";
+    const complete: SummaryCompleter = async (_model, context) => {
+      prompt = (context.systemPrompt ?? []).join("\n");
+      return makeAssistantResponse("【精要结论】\n1. Fine.");
+    };
+
+    await handleAgentEnd(
+      pi,
+      { messages: [assistantMessage([{ type: "text", text: "Did Y." }])] },
+      ctx,
+      { isEnabled: async () => true, getLanguage: async () => "follow", complete },
+    );
+    expect(prompt).toContain("SAME LANGUAGE as the reply");
+
+    const second = makeHarness();
+    await handleAgentEnd(
+      second.pi,
+      { messages: [assistantMessage([{ type: "text", text: "Did Y." }])] },
+      second.ctx,
+      { isEnabled: async () => true, getLanguage: async () => "en", complete },
+    );
+    expect(prompt).toContain("Write the item text in en,");
   });
 
   test("does nothing when the feature is disabled", async () => {
@@ -179,6 +209,7 @@ describe("handleAgentEnd", () => {
       ctx,
       {
         isEnabled: async () => true,
+        getLanguage: async () => "zh",
         complete: async () => makeAssistantResponse("nope"),
       },
     );
@@ -196,6 +227,7 @@ describe("handleAgentEnd", () => {
       ctx,
       {
         isEnabled: async () => true,
+        getLanguage: async () => "zh",
         complete: async () => makeAssistantResponse("nope"),
       },
     );
@@ -213,6 +245,7 @@ describe("handleAgentEnd", () => {
       ctx,
       {
         isEnabled: async () => true,
+        getLanguage: async () => "zh",
         complete: async () => {
           called = true;
           return makeAssistantResponse("nope");
@@ -229,6 +262,7 @@ describe("handleAgentEnd", () => {
 
     await handleAgentEnd(pi, { messages: [assistantMessage([{ type: "toolCall" }])] }, ctx, {
       isEnabled: async () => true,
+      getLanguage: async () => "zh",
       complete: async () => makeAssistantResponse("nope"),
     });
 
@@ -244,6 +278,7 @@ describe("handleAgentEnd", () => {
       ctx,
       {
         isEnabled: async () => true,
+        getLanguage: async () => "zh",
         complete: async () => {
           throw new Error("provider exploded");
         },
@@ -265,6 +300,7 @@ describe("handleAgentEnd", () => {
       ctx,
       {
         isEnabled: async () => true,
+        getLanguage: async () => "zh",
         complete: (_model, _context, options) => {
           seenOptions = options;
           return Promise.reject(new Error("The operation was aborted due to timeout"));
@@ -314,7 +350,7 @@ describe("handleAgentEnd", () => {
       pi,
       { messages: [assistantMessage([{ type: "text", text: "Did Y." }])] },
       ctx,
-      { isEnabled: async () => true, complete },
+      { isEnabled: async () => true, getLanguage: async () => "zh", complete },
     );
 
     expect(idleWhenCallingModel).toBe(true);
@@ -330,6 +366,7 @@ describe("handleAgentEnd", () => {
       ctx,
       {
         isEnabled: async () => true,
+        getLanguage: async () => "zh",
         complete: async () => makeAssistantResponse("   "),
       },
     );
@@ -346,6 +383,7 @@ describe("handleAgentEnd", () => {
       ctx,
       {
         isEnabled: async () => true,
+        getLanguage: async () => "zh",
         complete: async () =>
           ({
             content: [{ type: "text", text: "partial" }],
@@ -371,6 +409,7 @@ describe("handleAgentEnd", () => {
 
       await handleAgentEnd(pi, event, ctx, {
         isEnabled: async () => true,
+        getLanguage: async () => "zh",
         complete: async () => {
           called = true;
           return makeAssistantResponse("nope");
@@ -387,6 +426,7 @@ describe("handleAgentEnd", () => {
     const messages = [assistantMessage([{ type: "text", text: "Did Y." }])];
     const deps = {
       isEnabled: async () => true,
+      getLanguage: async () => "zh",
       complete: async () => makeAssistantResponse("Do X next."),
     };
 
@@ -407,6 +447,7 @@ describe("handleAgentEnd", () => {
       ctx,
       {
         isEnabled: async () => true,
+        getLanguage: async () => "zh",
         complete: async () => {
           called = true;
           return makeAssistantResponse("Do X next.");
@@ -431,6 +472,7 @@ describe("handleAgentEnd", () => {
       ctx,
       {
         isEnabled: async () => true,
+        getLanguage: async () => "zh",
         complete: async () => {
           state.idle = false;
           return makeAssistantResponse("Do X next.");
@@ -454,6 +496,7 @@ describe("handleAgentEnd", () => {
       ctx,
       {
         isEnabled: async () => true,
+        getLanguage: async () => "zh",
         complete: async () => {
           state.queued = true;
           return makeAssistantResponse("Do X next.");
@@ -474,6 +517,7 @@ describe("handleAgentEnd", () => {
       ctx,
       {
         isEnabled: async () => true,
+        getLanguage: async () => "zh",
         complete: async () => {
           called = true;
           return makeAssistantResponse("Do X next.");
@@ -499,6 +543,7 @@ describe("handleAgentEnd", () => {
       ctx,
       {
         isEnabled: async () => true,
+        getLanguage: async () => "zh",
         complete: async () =>
           makeAssistantResponse(
             "```\n1. Next step: run the tests.\n- Then commit.\n* Watch CI.\n```",
@@ -524,6 +569,7 @@ describe("handleAgentEnd", () => {
       ctx,
       {
         isEnabled: async () => true,
+        getLanguage: async () => "zh",
         complete: async () => makeAssistantResponse("```\n- \n\n```"),
       },
     );
@@ -587,5 +633,32 @@ describe("normalizeSummary", () => {
     expect(normalizeSummary("   \n\n  ")).toBeUndefined();
     expect(normalizeSummary("- \n```\n```")).toBeUndefined();
     expect(normalizeSummary("【精要结论】\n【下一步】")).toBeUndefined();
+  });
+});
+
+describe("buildSummarySystemPrompt", () => {
+  test("pins Chinese by default, independent of the reply's language", () => {
+    const prompt = buildSummarySystemPrompt("zh");
+    expect(prompt).toContain("Simplified Chinese");
+    expect(prompt).not.toContain("SAME LANGUAGE");
+    // Layout stays fixed whatever the language setting is.
+    expect(prompt).toContain("【精要结论】");
+    expect(prompt).toContain("【下一步】");
+  });
+
+  test("follow mirrors the reply's language", () => {
+    const prompt = buildSummarySystemPrompt("follow");
+    expect(prompt).toContain("SAME LANGUAGE as the reply");
+    expect(prompt).not.toContain("Simplified Chinese");
+  });
+
+  test("passes any other configured value through as the language", () => {
+    expect(buildSummarySystemPrompt("en")).toContain("Write the item text in en,");
+    expect(buildSummarySystemPrompt("日本語")).toContain("Write the item text in 日本語,");
+  });
+
+  test("keeps exactly one language line", () => {
+    const lines = buildSummarySystemPrompt("en").split("\n");
+    expect(lines.filter((line) => line.startsWith("Write the item text in"))).toHaveLength(1);
   });
 });

@@ -14,7 +14,11 @@
 import { completeSimple } from "@oh-my-pi/pi-ai";
 import type { AssistantMessage, Context, Model, SimpleStreamOptions } from "@oh-my-pi/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { getAdhdSummaryEnabled } from "./plugin-config";
+import {
+  ADHD_SUMMARY_LANGUAGE_FOLLOW,
+  getAdhdSummaryEnabled,
+  getAdhdSummaryLanguage,
+} from "./plugin-config";
 
 /** Custom message type of the footer entry. */
 export const SUMMARY_MESSAGE_TYPE = "adhd-summary";
@@ -58,8 +62,25 @@ const SYSTEM_PROMPT_LINES = [
   "Omit an optional item rather than padding it. Omit the whole 【下一步】 block only when there is genuinely nothing left to do.",
 ].join("\n");
 
-/** Passed as `Context.systemPrompt`, which is an array of blocks. */
-const SYSTEM_PROMPT = [SYSTEM_PROMPT_LINES];
+/**
+ * System prompt for one summarizer call.
+ *
+ * The footer's language is a setting, not a guess: the default is Chinese no
+ * matter what language the reply is in, and only an explicit `follow` value
+ * mirrors the reply. The two headers stay fixed — they are the extension's
+ * layout, not the model's copy.
+ *
+ * A code (`zh`, `en-US`) is handed to the model as written: it resolves names
+ * for codes it knows and an ISO code it does not is still an unambiguous
+ * instruction. Anything else (`日本語`, `繁體中文`) passes through untouched.
+ */
+export function buildSummarySystemPrompt(language: string): string {
+  const line =
+    language === ADHD_SUMMARY_LANGUAGE_FOLLOW
+      ? "Write the item text in the SAME LANGUAGE as the reply you are summarizing; keep the two headers exactly as given."
+      : `Write the item text in ${language === "zh" ? "Simplified Chinese (简体中文)" : language}, regardless of the language of the reply; keep the two headers exactly as given.`;
+  return SYSTEM_PROMPT_LINES.replace(/^Write the item text.*$/m, () => line);
+}
 
 /** Minimal shape of the transcript messages the footer reads. */
 export interface SummaryMessageLike {
@@ -78,6 +99,8 @@ export type SummaryCompleter = (
 export interface AdhdSummaryDeps {
   /** Config lookup. Defaults to the real `oh-my-pi-extends.json` reader. */
   isEnabled?: () => Promise<boolean>;
+  /** Footer language lookup. Defaults to the real `oh-my-pi-extends.json` reader. */
+  getLanguage?: () => Promise<string>;
   /** Summarizer model call. Defaults to `completeSimple`. */
   complete?: SummaryCompleter;
   /** Idle-wait cap. Defaults to `SUMMARY_WAIT_TIMEOUT_MS`; tests shrink it. */
@@ -287,6 +310,7 @@ export async function handleAgentEnd(
 
     const model = ctx.model;
     const complete = deps.complete ?? completeSimple;
+    const language = await (deps.getLanguage ?? getAdhdSummaryLanguage)();
 
     const idle = await waitForIdle(
       ctx,
@@ -301,7 +325,7 @@ export async function handleAgentEnd(
     const response = await complete(
       model,
       {
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt: [buildSummarySystemPrompt(language)],
         messages: [{ role: "user", content: source, timestamp: Date.now() }],
       },
       {

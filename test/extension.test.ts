@@ -107,6 +107,38 @@ describe("Extension entry point", () => {
     expect(impDef.description).toContain("还原");
     expect(benchDef.description).toContain("token 输出速度");
   });
+
+  test("/adhd-summary lang sets and reports the footer language", async () => {
+    registered.clear();
+    // Dynamic on purpose: the module captures HOME at import time, which beforeAll points at the sandbox.
+    const mod = await import("../src/index");
+    mod.default(mockPi);
+    const handler = registered.get("adhd-summary")!.handler;
+    const ctx = makeMockCtx();
+    const configPath = join(agentDir, "oh-my-pi-extends.json");
+
+    notifyLog.length = 0;
+    await handler("lang follow", ctx);
+    expect(notifyLog.at(-1)).toContain("follow");
+    expect(JSON.parse(await Bun.file(configPath).text())).toEqual({
+      adhdSummary: { language: "follow" },
+    });
+
+    notifyLog.length = 0;
+    await handler("lang", ctx);
+    expect(notifyLog.at(-1)).toContain("跟随回复语言");
+
+    notifyLog.length = 0;
+    await handler("lang en", ctx);
+    await handler("off", ctx);
+    expect(JSON.parse(await Bun.file(configPath).text())).toEqual({
+      adhdSummary: { language: "en", enabled: false },
+    });
+
+    notifyLog.length = 0;
+    await handler("bogus", ctx);
+    expect(notifyLog.at(-1)).toContain("用法");
+  });
 });
 
 describe("Export flow", () => {
