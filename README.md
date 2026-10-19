@@ -163,6 +163,7 @@ oh-my-pi-extends/
 ├── bun.lock              # Bun lockfile
 ├── tsconfig.json         # TypeScript 配置
 ├── CONTEXT.md            # 领域词汇表
+├── CHANGELOG.md          # 更新日志（各版本说明）
 ├── AGENTS.md             # Agent skills 配置
 └── README.md             # 本文件
 ```
