@@ -145,7 +145,8 @@ oh-my-pi-extends/
 │   ├── agents/           # 技能文档
 │   └── adr/              # 架构决策记录
 ├── scripts/
-│   └── bump-version.ts   # post-commit 版本号自动更新脚本
+│   ├── bump-version.ts   # post-commit 版本号自动更新脚本
+│   └── refresh-index.ts  # post-commit 索引自动刷新脚本（5 分钟节流）
 ├── package.json          # 插件清单，omp.extensions → src/index.ts
 ├── bun.lock              # Bun lockfile
 ├── tsconfig.json         # TypeScript 配置
@@ -169,6 +170,21 @@ oh-my-pi-extends/
 - 版本号更新后**自动 `git add` 并 `git commit --amend` 并入刚产生的提交**，因此版本号随该提交一起入库，工作区保持干净。
 - 仅对**本地未推送**的提交生效；amend 不会改写已推送的历史。
 - 跳过本次钩子：`SKIP_SIMPLE_GIT_HOOKS=1 git commit ...`。
+
+## 索引自动刷新
+
+同一个 `post-commit` 钩子在版本号更新之后调用 `scripts/refresh-index.ts`，刷新 GitNexus 与 CodeGraph 索引：
+
+```
+bun run scripts/bump-version.ts && bun run scripts/refresh-index.ts
+```
+
+- 刷新任务在**独立后台进程**中执行（Windows 用 `cmd /c start /b` 脱离父进程），提交本身不等待：闸门 1 秒内返回，实际刷新约 10-15 秒。
+- **节流**：默认 5 分钟内最多启动一次刷新。窗口内再次提交不会立刻刷新，而是**预约一次窗口结束时的刷新**（同一时间窗口只有一个预约），保证连续提交之后索引仍然是最新的。
+- 闸门每次只做三件事之一：立即启动 / 预约启动 / 跳过（已有刷新在跑、或已有预约）。
+- 状态与日志存放在 git 目录内（不入库）：`.git/oh-my-pi-extends-index.json`、`.git/oh-my-pi-extends-index.log`。日志上限 1 MB，超出后重写。
+- 环境变量：`INDEX_REFRESH_WINDOW_MS` 改节流窗口；`INDEX_REFRESH_DISABLE=1` 关闭该钩子。
+- 刷新失败只写日志，**不会**让提交失败。
 
 ## 开发说明
 
