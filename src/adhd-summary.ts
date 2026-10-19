@@ -27,18 +27,29 @@ export const SUMMARY_WAIT_TIMEOUT_MS = 10_000;
 const SUMMARY_HANDLER_BUDGET_MS = 30_000;
 /** Poll interval used while waiting for idle. */
 const WAIT_POLL_INTERVAL_MS = 25;
-/** Documented hard cap on footer lines; enforced by `normalizeSummary`. */
-export const SUMMARY_MAX_LINES = 3;
+/** Fixed section headers: the footer's layout belongs to the extension, not the model. */
+const CONCLUSION_HEADER = "【精要结论】";
+const NEXT_HEADER = "【下一步】";
+/** Caps enforced by `normalizeSummary` on top of the prompt's own wording. */
+export const SUMMARY_CONCLUSION_MAX_ITEMS = 2;
+export const SUMMARY_NEXT_MAX_ITEMS = 3;
 
 const SYSTEM_PROMPT_LINES = [
-  "You write the short ADHD-style footer shown to the user right after an assistant reply.",
+  "You write the footer shown to the user right after an assistant reply.",
+  "Write the item text in the SAME LANGUAGE as the reply you are summarizing; keep the two headers exactly as given.",
   "",
-  "Output at most 3 short lines, in the SAME LANGUAGE as the reply you are summarizing:",
-  "1. the next action the user (or the assistant, if it continues) should take;",
-  "2. one line on what just happened;",
-  "3. the open item, blocker, or a time estimate.",
+  "Output exactly these two blocks:",
   "",
-  "Omit any line with nothing to say. No preamble, no closers, no praise, no headings, no bullet markers, no code fences. Output only those lines.",
+  CONCLUSION_HEADER,
+  "1. <one sentence: the conclusion of the reply, stated first, no build-up>",
+  "2. <optional: the key fact that supports it; at most 2 items in this block>",
+  "",
+  NEXT_HEADER,
+  "1. <the next action the user or the assistant should take>",
+  "2. <optional further actions; at most 3 items in this block>",
+  "",
+  "Rules: one short line per item; no preamble, no closers, no praise, no code fences.",
+  "Omit an optional item rather than padding it. Omit the whole 【下一步】 block only when there is genuinely nothing left to do.",
 ].join("\n");
 
 /** Passed as `Context.systemPrompt`, which is an array of blocks. */
@@ -108,25 +119,102 @@ const NUMBER_PREFIX = /^\d+[.)](?:\s+|$)/;
  */
 const LABEL_PREFIX = /^[^\s:：/]+(?:\s+[^\s:：/]+){0,2}(?::\s+|：\s*)/;
 
+type Section = "conclusion" | "next";
+const CONCLUSION_KEYS: Record<string, true> = {
+  精要结论: true,
+  结论: true,
+  总结: true,
+  摘要: true,
+  小结: true,
+  conclusion: true,
+  summary: true,
+  "tl;dr": true,
+  tldr: true,
+};
+const NEXT_KEYS: Record<string, true> = {
+  下一步: true,
+  后续: true,
+  后续步骤: true,
+  待办: true,
+  next: true,
+  nextstep: true,
+  nextsteps: true,
+  todo: true,
+  actions: true,
+};
+
+/** Section a header line opens, or undefined for a content line. */
+function sectionOf(line: string): Section | undefined {
+  const key = line
+    .replace(/^[【[(#*>~\s]+/, "")
+    .replace(/[】\])#*:：\s]+$/, "")
+    .toLowerCase()
+    .replace(/\s+/g, "");
+  if (Object.hasOwn(CONCLUSION_KEYS, key)) return "conclusion";
+  if (Object.hasOwn(NEXT_KEYS, key)) return "next";
+  return undefined;
+}
+
 /**
- * Code-enforced format gate. The "at most 3 lines, no preamble" promise used to
- * live only in the system prompt; this makes it true of what gets sent.
+ * Code-enforced format gate. The "two numbered blocks, conclusion first" layout
+ * is the extension's; the model's markers, headers, ordering and padding are
+ * not trusted.
  *
- * Drops code-fence lines, bullet/number markers and label-like prefixes, trims,
- * keeps at most `SUMMARY_MAX_LINES` non-empty lines, and returns `undefined`
- * when nothing survives so the caller sends nothing at all.
+ * Drops code-fence lines, sorts items into the two sections, strips any bullet,
+ * number or label prefix the model added, renumbers every item itself, caps the
+ * sections at `SUMMARY_CONCLUSION_MAX_ITEMS` / `SUMMARY_NEXT_MAX_ITEMS`, and
+ * returns `undefined` when there is no conclusion to show so the caller sends
+ * nothing at all.
  */
 export function normalizeSummary(raw: string): string | undefined {
-  const lines = raw
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith("```"))
-    .map((line) =>
-      line.replace(BULLET_PREFIX, "").replace(NUMBER_PREFIX, "").replace(LABEL_PREFIX, "").trim(),
+  const conclusion: string[] = [];
+  const next: string[] = [];
+  const unlabeled: string[] = [];
+  let current: Section | undefined;
+
+  for (const rawLine of raw.split("\n")) {
+    const line = rawLine.trim();
+    if (line.length === 0 || line.startsWith("```")) continue;
+    const section = sectionOf(line);
+    if (section) {
+      current = section;
+      continue;
+    }
+    const text = line
+      .replace(BULLET_PREFIX, "")
+      .replace(NUMBER_PREFIX, "")
+      .replace(LABEL_PREFIX, "")
+      .trim();
+    if (text.length === 0) continue;
+    if (current === "conclusion") conclusion.push(text);
+    else if (current === "next") next.push(text);
+    else unlabeled.push(text);
+  }
+
+  // A model that ignored the headers still gets a usable footer: its first line
+  // is the conclusion, the rest are next steps. A missing conclusion is filled
+  // from the top of whatever it did send, so the first block is never empty.
+  if (conclusion.length === 0) {
+    const fallback = unlabeled.shift() ?? next.shift();
+    if (fallback === undefined) return undefined;
+    conclusion.push(fallback);
+  }
+  next.push(...unlabeled);
+
+  const blocks = [
+    [CONCLUSION_HEADER, ...conclusion.slice(0, SUMMARY_CONCLUSION_MAX_ITEMS)].join("\n"),
+  ];
+  if (next.length > 0) {
+    blocks.push([NEXT_HEADER, ...next.slice(0, SUMMARY_NEXT_MAX_ITEMS)].join("\n"));
+  }
+  return blocks
+    .map((block) =>
+      block
+        .split("\n")
+        .map((line, index) => (index === 0 ? line : `${index}. ${line}`))
+        .join("\n"),
     )
-    .filter((line) => line.length > 0)
-    .slice(0, SUMMARY_MAX_LINES);
-  return lines.length > 0 ? lines.join("\n") : undefined;
+    .join("\n\n");
 }
 
 /**

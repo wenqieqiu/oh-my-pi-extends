@@ -118,7 +118,7 @@ describe("handleAgentEnd", () => {
     const complete: SummaryCompleter = async (_model, context, options) => {
       seenContext = context;
       seenOptions = options;
-      return makeAssistantResponse("Do X next.");
+      return makeAssistantResponse("【精要结论】\n1. Did Y.\n【下一步】\n1. Do X next.");
     };
 
     await handleAgentEnd(
@@ -131,14 +131,17 @@ describe("handleAgentEnd", () => {
     expect(calls.length).toBe(1);
     expect(calls[0].message.customType).toBe(SUMMARY_MESSAGE_TYPE);
     expect(calls[0].message.display).toBe(true);
-    expect(calls[0].message.content).toEqual([{ type: "text", text: "Do X next." }]);
+    expect(calls[0].message.content).toEqual([
+      { type: "text", text: "【精要结论】\n1. Did Y.\n\n【下一步】\n1. Do X next." },
+    ]);
     expect(calls[0].options).toEqual({ triggerTurn: false });
 
     // systemPrompt is passed as an array, the summarized reply as the user message.
     const systemPrompt = seenContext?.systemPrompt ?? [];
     expect(Array.isArray(seenContext?.systemPrompt)).toBe(true);
     expect(systemPrompt.length).toBeGreaterThan(0);
-    expect(systemPrompt[0]).toContain("ADHD");
+    expect(systemPrompt[0]).toContain("【精要结论】");
+    expect(systemPrompt[0]).toContain("【下一步】");
     expect(seenContext?.messages[0].content).toBe("Did Y.");
     expect(seenOptions?.disableReasoning).toBe(true);
     expect(seenOptions?.maxTokens).toBe(512);
@@ -391,7 +394,7 @@ describe("handleAgentEnd", () => {
     await handleAgentEnd(pi, { messages }, ctx, deps);
 
     expect(calls.length).toBe(1);
-    expect(calls[0].message.content).toEqual([{ type: "text", text: "Do X next." }]);
+    expect(calls[0].message.content).toEqual([{ type: "text", text: "【精要结论】\n1. Do X next." }]);
   });
 
   test("drops the footer when a message is queued, the reply is no longer current", async () => {
@@ -485,7 +488,7 @@ describe("handleAgentEnd", () => {
     expect(SUMMARY_WAIT_TIMEOUT_MS).toBeGreaterThan(0);
   });
 
-  test("sends at most three lines of the model's answer", async () => {
+  test("renders the model's answer as the two capped blocks", async () => {
     const { pi, ctx, calls } = makeHarness();
 
     await handleAgentEnd(
@@ -496,14 +499,17 @@ describe("handleAgentEnd", () => {
         isEnabled: async () => true,
         complete: async () =>
           makeAssistantResponse(
-            "```\n1. Next step: run the tests.\n- Then commit.\n* Watch CI.\n- Fourth line.\n```",
+            "```\n1. Next step: run the tests.\n- Then commit.\n* Watch CI.\n```",
           ),
       },
     );
 
     expect(calls.length).toBe(1);
     expect(calls[0].message.content).toEqual([
-      { type: "text", text: "run the tests.\nThen commit.\nWatch CI." },
+      {
+        type: "text",
+        text: "【精要结论】\n1. run the tests.\n\n【下一步】\n1. Then commit.\n2. Watch CI.",
+      },
     ]);
   });
 
@@ -525,37 +531,59 @@ describe("handleAgentEnd", () => {
 });
 
 describe("normalizeSummary", () => {
-  test("keeps plain lines, trims them, and drops blank lines", () => {
-    expect(normalizeSummary("  Next: run the tests.\n\n Then commit.  ")).toBe(
-      "run the tests.\nThen commit.",
-    );
-    expect(normalizeSummary("Do X next.")).toBe("Do X next.");
+  test("renders the two blocks with our own numbering", () => {
+    expect(
+      normalizeSummary("【精要结论】\n1. 索引已刷新\n2. 工作树只剩统计漂移\n【下一步】\n1. 提交统计"),
+    ).toBe("【精要结论】\n1. 索引已刷新\n2. 工作树只剩统计漂移\n\n【下一步】\n1. 提交统计");
   });
 
-  test("drops code fences and bullet or number markers", () => {
-    expect(normalizeSummary("```ts\n- one\n* two\n+ three\n1. four\n1) five\n```")).toBe(
-      "one\ntwo\nthree",
+  test("renumbers whatever the model wrote", () => {
+    expect(normalizeSummary("精要结论\n- a\n- b\n下一步\n- c")).toBe(
+      "【精要结论】\n1. a\n2. b\n\n【下一步】\n1. c",
+    );
+    expect(normalizeSummary("Summary:\n7) a\nNext steps:\n3) b")).toBe(
+      "【精要结论】\n1. a\n\n【下一步】\n1. b",
     );
   });
 
-  test("drops label-like prefixes but keeps URLs and prose colons", () => {
-    expect(normalizeSummary("Next step: run the tests.")).toBe("run the tests.");
-    expect(normalizeSummary("下一步：运行测试")).toBe("运行测试");
-    expect(normalizeSummary("See https://example.com/run")).toBe("See https://example.com/run");
-    expect(normalizeSummary("See: https://example.com/run")).toBe("https://example.com/run");
-    expect(normalizeSummary("Open question: why?")).toBe("why?");
+  test("drops code fences and label-like prefixes, keeps URLs and prose colons", () => {
+    expect(normalizeSummary("```\n精要结论\nSee https://example.com/run\n```")).toBe(
+      "【精要结论】\n1. See https://example.com/run",
+    );
+    expect(normalizeSummary("下一步：运行测试")).toBe("【精要结论】\n1. 运行测试");
+    expect(normalizeSummary("Next step: run the tests.")).toBe("【精要结论】\n1. run the tests.");
     expect(normalizeSummary("Fixed the bug in file: src/x.ts")).toBe(
-      "Fixed the bug in file: src/x.ts",
+      "【精要结论】\n1. Fixed the bug in file: src/x.ts",
+    );
+    expect(normalizeSummary("See: https://example.com/run")).toBe(
+      "【精要结论】\n1. https://example.com/run",
     );
   });
 
-  test("keeps at most three non-empty lines", () => {
-    expect(normalizeSummary("a\nb\nc\nd\ne")).toBe("a\nb\nc");
+  test("caps each block", () => {
+    const many = "【精要结论】\n1. a\n2. b\n3. c\n【下一步】\n1. d\n2. e\n3. f\n4. g";
+    expect(normalizeSummary(many)).toBe("【精要结论】\n1. a\n2. b\n\n【下一步】\n1. d\n2. e\n3. f");
+  });
+
+  test("falls back when the model ignores the headers", () => {
+    // First line becomes the conclusion, the rest are next steps.
+    expect(normalizeSummary("Done.\nCommit it.\nThen push.")).toBe(
+      "【精要结论】\n1. Done.\n\n【下一步】\n1. Commit it.\n2. Then push.",
+    );
+  });
+
+  test("omits the next block when there is nothing to do", () => {
+    expect(normalizeSummary("【精要结论】\nNothing left.")).toBe("【精要结论】\n1. Nothing left.");
+  });
+
+  test("fills the conclusion from the next block rather than sending an empty one", () => {
+    expect(normalizeSummary("【下一步】\n1. push")).toBe("【精要结论】\n1. push");
   });
 
   test("returns undefined when nothing survives", () => {
     expect(normalizeSummary("")).toBeUndefined();
     expect(normalizeSummary("   \n\n  ")).toBeUndefined();
     expect(normalizeSummary("- \n```\n```")).toBeUndefined();
+    expect(normalizeSummary("【精要结论】\n【下一步】")).toBeUndefined();
   });
 });
