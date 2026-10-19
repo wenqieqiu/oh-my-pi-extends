@@ -1,9 +1,10 @@
 # oh-my-pi-extends
 
-Oh My Pi（OMP）扩展集。当前提供**配置备份**与**模型速度基准测试**两大功能。
+Oh My Pi（OMP）扩展集。当前提供**配置备份**、**模型速度基准测试**与 **ADHD 式摘要**三大功能。
 
 - **配置备份**：把本机 OMP 配置（config.yml、extensions、skills、模型数据库等）打包为 `.tar.gz` **备份文件**，可在另一台电脑**还原**；导入时先做**还原前备份**，并校验备份格式版本与 OMP 版本。
 - **模型速度测试**：测量当前会话模型的 token 输出速度（TTFT + TPS），支持 Esc / Ctrl+Shift+E 中止。
+- **ADHD 式摘要**：每条**终结**回复后追加一条可见的简短摘要（下一步 / 发生了什么 / 待办），正文不超过 3 行（由代码强制）。
 
 ## 命令
 
@@ -12,6 +13,7 @@ Oh My Pi（OMP）扩展集。当前提供**配置备份**与**模型速度基准
 | `/export-config`           | 选择配置项目 → 导出为 `tar.gz` 备份文件                            |
 | `/import-config`           | 选择备份文件 → 校验 → 选择还原项目 → 还原前备份 → 还原             |
 | `/benchmark-token-speed`   | 测试当前模型 token 输出速度（三个真实场景，各测一遍取均值）         |
+| `/adhd-summary`            | 开关 ADHD 式摘要（无参数即切换，或 `on` / `off` / `status`）         |
 | `Ctrl+Shift+E`（快捷键）   | 中止正在运行的基准测试（Esc 键亦可）                               |
 
 > 命令一律在 OMP 聊天输入。基准测试进度通过会话消息实时显示。
@@ -61,7 +63,7 @@ omp plugin uninstall oh-my-pi-extends
 ### 导出配置
 
 1. 在 OMP 聊天输入 `/export-config`
-2. 选择要包含的项目（config.yml、APPEND_SYSTEM.md、extensions/、skills/、models.db、agent.db），可全选或逐个勾选
+2. 选择要包含的项目（config.yml、APPEND_SYSTEM.md、extensions/、skills/、models.db、agent.db、last-changelog-version、mcp.json、skill-descriptions.db、managed-skills/），可全选或逐个勾选
 3. 确认保存路径（默认 `~/omp-config-export-时间戳.tar.gz`）
 4. 等待打包完成，可选在文件管理器中打开所在位置
 
@@ -85,6 +87,25 @@ omp plugin uninstall oh-my-pi-extends
 4. 按 **Esc** 或 **Ctrl+Shift+E** 可随时中止整个测试（中止后不产出报告）
 5. 完成后以会话消息输出测试报告（含汇总表与各次测量明细）
 
+### ADHD 式摘要
+
+只有**终结**的最终回复（主 agent 的回复）之后才追加摘要；续写类结算（rewind、plan-mode、todo 提醒等未终结的结算）不追加，因此同一条回复不会出现两次页脚。
+
+摘要是一条**独立的可见会话消息**，内容为不超过 3 行的摘要：
+
+1. 下一步要做什么
+2. 刚刚发生了什么
+3. 未决事项或时间预估（没有内容时该行省略）
+
+行数上限由代码强制：超出部分、markdown 围栏与列表符号会在写出前剥掉。摘要与被总结的回复使用同一语言，不带开场白与收尾语。摘要作为回复之后的独立会话条目显示，**不触发额外的会话回合**。
+
+1. 开关：`/adhd-summary`（无参数即切换开关状态，不接受 `toggle` 等其它关键字）
+2. 显式设置 / 查看：`/adhd-summary on`、`/adhd-summary off`、`/adhd-summary status`
+3. 状态写在 `~/.omp/agent/oh-my-pi-extends.json`，形如 `{"adhdSummary":{"enabled":true}}`；文件缺失或损坏时按**默认开启**处理
+4. 状态栏只在功能**关闭**时显示关闭状态文本；开启后清除该状态
+5. 每条回复额外消耗一次模型调用，使用当前会话模型，**超时上限 20 秒**；无 UI 的会话（`--print`、RPC）不追加、也不发起这次调用
+6. 失败一律**静默**：取不到模型、模型报错、超时、解析失败等情况下只不追加摘要，不报错、不阻塞回复、不占位
+
 ## 可导出的配置项目
 
 | 项目             | 内容                             |
@@ -95,6 +116,14 @@ omp plugin uninstall oh-my-pi-extends
 | skills/          | 自定义 agent 技能                |
 | models.db        | 模型提供商和 API 端点            |
 | agent.db         | Agent 持久化数据                 |
+| last-changelog-version | 上次已读更新日志的版本号   |
+| mcp.json         | MCP 服务器定义与启动参数         |
+| skill-descriptions.db | 技能描述缓存数据库          |
+| managed-skills/  | OMP 下载安装的托管技能目录       |
+
+> `auth.json`（含凭证）不在导出范围内。
+>
+> `oh-my-pi-extends.json`（本扩展自身的 ADHD 式摘要开关）同样**不在导出范围内**。
 
 ## 项目结构
 
@@ -102,10 +131,12 @@ omp plugin uninstall oh-my-pi-extends
 oh-my-pi-extends/
 ├── src/
 │   ├── index.ts          # 扩展入口：注册命令与快捷键
-│   ├── config-items.ts   # 6 个配置项目的定义（收集/写回/估大小）
+│   ├── config-items.ts   # 10 个配置项目的定义（收集/写回/估大小）
 │   ├── export-config.ts  # /export-config 逻辑
 │   ├── import-config.ts  # /import-config 逻辑（校验 + 还原前备份 + 还原）
 │   ├── benchmark.ts      # /benchmark-token-speed 逻辑（TTFT/TPS + 取消）
+│   ├── adhd-summary.ts   # /adhd-summary 逻辑（最终回复后的 ADHD 式摘要）
+│   ├── plugin-config.ts  # 扩展自身配置读写（oh-my-pi-extends.json）
 │   ├── tar-utils.ts      # 纯 TypeScript tar.gz 实现（零外部依赖）
 │   ├── common.ts         # 共享工具：agent 目录、时间戳、OMP 版本、文件收集
 │   └── ui.ts             # 多选交互（checkbox）

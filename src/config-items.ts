@@ -6,7 +6,7 @@
  *
  * Uses Bun native file APIs instead of node:fs.
  */
-import { join } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 
 export interface ConfigItem {
   id: string;
@@ -36,10 +36,28 @@ async function* walkDir(dir: string, prefix: string): AsyncGenerator<[string, Ui
   }
 }
 
+/**
+ * Resolve an archive key under `base` for writing, or null when it must be
+ * skipped: absolute keys, drive/UNC prefixes, backslashes, any `..` segment,
+ * and anything that still resolves outside `base`.
+ */
+export function safeTreePath(base: string, key: string): string | null {
+  if (!key || isAbsolute(key) || /^[A-Za-z]:/.test(key) || key.includes("\\")) return null;
+  if (key.split("/").includes("..")) return null;
+  const root = resolve(base);
+  const full = resolve(root, key);
+  return full.startsWith(root + sep) ? full : null;
+}
+
 /** Write files under `base` directory. Bun.write auto-creates parent dirs. */
 async function writeTree(base: string, files: Map<string, Uint8Array>): Promise<void> {
-  for (const [path, content] of files) {
-    await Bun.write(join(base, path), content);
+  for (const [key, content] of files) {
+    const target = safeTreePath(base, key);
+    if (!target) {
+      console.warn(`oh-my-pi-extends: skipping unsafe archive path ${key}`);
+      continue;
+    }
+    await Bun.write(target, content);
   }
 }
 
@@ -58,46 +76,54 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// ── Item definitions ──────────────────────────────────────────────
-
-export const CONFIG_ITEMS: ConfigItem[] = [
-  {
-    id: "config",
-    label: "主配置 (config.yml)",
-    description: "模型设置、状态栏布局、扩展路径等关键配置",
+/** Single-file item: one archive key, stored at the same path under `~/.omp/agent/`. */
+function fileItem(opts: {
+  id: string;
+  label: string;
+  description: string;
+  file: string;
+  /** Missing file exports an empty map instead of propagating ENOENT. */
+  tolerant?: boolean;
+}): ConfigItem {
+  return {
+    id: opts.id,
+    label: opts.label,
+    description: opts.description,
     async exportFiles() {
-      const content = await Bun.file(join(getAgent(), "config.yml")).arrayBuffer();
-      return new Map([["config.yml", new Uint8Array(content)]]);
-    },
-    async importFiles(files) {
-      const c = files.get("config.yml");
-      if (c) await Bun.write(join(getAgent(), "config.yml"), c);
-    },
-    async estimateSize() {
-      return formatFileSize(join(getAgent(), "config.yml"));
-    },
-  },
-  {
-    id: "append_system",
-    label: "系统提示 (APPEND_SYSTEM.md)",
-    description: "追加到系统提示的自定义指令",
-    async exportFiles() {
-      const p = join(getAgent(), "APPEND_SYSTEM.md");
       try {
-        const content = await Bun.file(p).arrayBuffer();
-        return new Map([["APPEND_SYSTEM.md", new Uint8Array(content)]]);
-      } catch {
+        const content = await Bun.file(join(getAgent(), opts.file)).arrayBuffer();
+        return new Map([[opts.file, new Uint8Array(content)]]);
+      } catch (err) {
+        if (!opts.tolerant) throw err;
         return new Map(); // file may not exist yet
       }
     },
     async importFiles(files) {
-      const c = files.get("APPEND_SYSTEM.md");
-      if (c) await Bun.write(join(getAgent(), "APPEND_SYSTEM.md"), c);
+      const c = files.get(opts.file);
+      if (c) await Bun.write(join(getAgent(), opts.file), c);
     },
     async estimateSize() {
-      return formatFileSize(join(getAgent(), "APPEND_SYSTEM.md"));
+      return formatFileSize(join(getAgent(), opts.file));
     },
-  },
+  };
+}
+
+// ── Item definitions ──────────────────────────────────────────────
+
+export const CONFIG_ITEMS: ConfigItem[] = [
+  fileItem({
+    id: "config",
+    label: "主配置 (config.yml)",
+    description: "模型设置、状态栏布局、扩展路径等关键配置",
+    file: "config.yml",
+  }),
+  fileItem({
+    id: "append_system",
+    label: "系统提示 (APPEND_SYSTEM.md)",
+    description: "追加到系统提示的自定义指令",
+    file: "APPEND_SYSTEM.md",
+    tolerant: true,
+  }),
   {
     id: "extensions",
     label: "扩展目录 (extensions/)",
@@ -172,36 +198,74 @@ export const CONFIG_ITEMS: ConfigItem[] = [
       }
     },
   },
-  {
+  fileItem({
     id: "models_db",
     label: "模型数据库 (models.db)",
     description: "已配置的模型提供商和 API 端点",
-    async exportFiles() {
-      const content = await Bun.file(join(getAgent(), "models.db")).arrayBuffer();
-      return new Map([["models.db", new Uint8Array(content)]]);
-    },
-    async importFiles(files) {
-      const c = files.get("models.db");
-      if (c) await Bun.write(join(getAgent(), "models.db"), c);
-    },
-    async estimateSize() {
-      return formatFileSize(join(getAgent(), "models.db"));
-    },
-  },
-  {
+    file: "models.db",
+  }),
+  fileItem({
     id: "agent_db",
     label: "Agent 数据库 (agent.db)",
     description: "Agent 内部状态和持久化数据",
+    file: "agent.db",
+  }),
+  fileItem({
+    id: "last-changelog-version",
+    label: "更新标记 (last-changelog-version)",
+    description: "上次已读更新日志的版本号，用于判断是否提示新版本",
+    file: "last-changelog-version",
+    tolerant: true,
+  }),
+  fileItem({
+    id: "mcp",
+    label: "MCP 配置 (mcp.json)",
+    description: "MCP 服务器定义与启动参数",
+    file: "mcp.json",
+    tolerant: true,
+  }),
+  fileItem({
+    id: "skill_descriptions",
+    label: "技能描述 (skill-descriptions.db)",
+    description: "已生成技能描述的缓存数据库",
+    file: "skill-descriptions.db",
+    tolerant: true,
+  }),
+  {
+    id: "managed_skills",
+    label: "托管技能 (managed-skills/)",
+    description: "OMP 自行下载安装的托管技能目录",
     async exportFiles() {
-      const content = await Bun.file(join(getAgent(), "agent.db")).arrayBuffer();
-      return new Map([["agent.db", new Uint8Array(content)]]);
+      const files = new Map<string, Uint8Array>();
+      const dir = join(getAgent(), "managed-skills");
+      try {
+        for await (const [path, content] of walkDir(dir, "managed-skills/")) {
+          files.set(path, content);
+        }
+      } catch {
+        // directory may not exist
+      }
+      return files;
     },
     async importFiles(files) {
-      const c = files.get("agent.db");
-      if (c) await Bun.write(join(getAgent(), "agent.db"), c);
+      const managedFiles = new Map([...files].filter(([p]) => p.startsWith("managed-skills/")));
+      if (managedFiles.size > 0) {
+        await writeTree(getAgent(), managedFiles);
+      }
     },
     async estimateSize() {
-      return formatFileSize(join(getAgent(), "agent.db"));
+      try {
+        const dir = join(getAgent(), "managed-skills");
+        let total = 0;
+        const glob = new Bun.Glob("**/*");
+        for await (const raw of glob.scan({ cwd: dir })) {
+          const f = Bun.file(join(dir, raw));
+          if (await f.exists()) total += f.size;
+        }
+        return formatBytes(total);
+      } catch {
+        return "0 B";
+      }
     },
   },
 ];

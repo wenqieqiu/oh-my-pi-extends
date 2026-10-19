@@ -13,6 +13,7 @@ import { gunzipSync } from "bun";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { getOmpVersion } from "../src/common";
 import type { ExtensionAPI, ExtensionCommandContext } from "@oh-my-pi/pi-coding-agent";
 
 let sandbox: string;
@@ -29,12 +30,16 @@ const notifyLog: string[] = [];
 let confirmResponses: boolean[] = [];
 let inputResponses: string[] = [];
 const statusMap = new Map<string, string | undefined>();
+const hookEvents: string[] = [];
 
 const mockPi = {
   registerCommand: (name: string, defn: CommandDefn) => {
     registered.set(name, defn);
   },
   registerShortcut: () => {},
+  on: (event: string) => {
+    hookEvents.push(event);
+  },
   logger: {
     error: (...args: unknown[]) => console.error("[mock logger]", ...args),
     info: (...args: unknown[]) => console.log("[mock logger]", ...args),
@@ -44,10 +49,15 @@ const mockPi = {
 function makeMockCtx(): ExtensionCommandContext {
   return {
     ui: {
-      notify: (msg: string) => { notifyLog.push(msg); },
+      notify: (msg: string) => {
+        notifyLog.push(msg);
+      },
       confirm: async (_title: string, _msg: string) => confirmResponses.shift() ?? false,
-      input: async (_label: string, _placeholder?: string) => inputResponses.shift() ?? _placeholder ?? "",
-      setStatus: (_key: string, _text: string | undefined) => { statusMap.set(_key, _text); },
+      input: async (_label: string, _placeholder?: string) =>
+        inputResponses.shift() ?? _placeholder ?? "",
+      setStatus: (_key: string, _text: string | undefined) => {
+        statusMap.set(_key, _text);
+      },
     },
   } as unknown as ExtensionCommandContext;
 }
@@ -61,6 +71,8 @@ beforeAll(async () => {
 
   // Bun.write auto-creates parent directories
   await Bun.write(join(agentDir, "config.yml"), "lastChangelogVersion: v15.10.4\nkey: value\n");
+  // Leading "v" is cosmetic — the exported manifest must carry the bare version.
+  await Bun.write(join(agentDir, "last-changelog-version"), "v18.12.2\n");
   await Bun.write(join(agentDir, "APPEND_SYSTEM.md"), "# custom prompt\n");
   await Bun.write(join(agentDir, "extensions", "demo.ts"), "export default {};\n");
   await Bun.write(join(agentDir, "skills", "helper.md"), "# helper\n");
@@ -86,6 +98,8 @@ describe("Extension entry point", () => {
     expect(registered.has("export-config")).toBe(true);
     expect(registered.has("import-config")).toBe(true);
     expect(registered.has("benchmark-token-speed")).toBe(true);
+    expect(registered.has("adhd-summary")).toBe(true);
+    expect(hookEvents).toContain("agent_end");
     const expDef = registered.get("export-config")!;
     const impDef = registered.get("import-config")!;
     const benchDef = registered.get("benchmark-token-speed")!;
@@ -122,6 +136,7 @@ describe("Export flow", () => {
     expect(text).toContain("models.db");
     expect(text).toContain("agent.db");
     expect(text).toContain("manifest.json");
+    expect(text).toContain('"ompVersion":"18.12.2"');
   });
 });
 
@@ -149,5 +164,27 @@ describe("Import flow", () => {
 
     const restoredConfig = await Bun.file(join(agentDir, "config.yml")).text();
     expect(restoredConfig).toBe(originalConfig);
+  });
+});
+
+describe("getOmpVersion", () => {
+  test("strips a cosmetic leading v from the marker file and the legacy config key", async () => {
+    const prevHome = Bun.env.HOME;
+    const probeHome = join(sandbox, "version-probe");
+    const probeDir = join(probeHome, ".omp", "agent");
+    Bun.env.HOME = probeHome;
+    try {
+      await Bun.write(join(probeDir, "last-changelog-version"), "V15.10.4\n");
+      expect(await getOmpVersion()).toBe("15.10.4");
+
+      rmSync(join(probeDir, "last-changelog-version"));
+      await Bun.write(join(probeDir, "config.yml"), "lastChangelogVersion: v15.10.4\n");
+      expect(await getOmpVersion()).toBe("15.10.4");
+
+      rmSync(join(probeDir, "config.yml"));
+      expect(await getOmpVersion()).toBe("unknown");
+    } finally {
+      Bun.env.HOME = prevHome;
+    }
   });
 });

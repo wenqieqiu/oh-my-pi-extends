@@ -19,10 +19,26 @@ export function ts(): string {
 }
 
 export async function getOmpVersion(): Promise<string> {
+  const dir = getAgentDir();
+  // Both sources may carry a cosmetic leading "v"; drop it so "v15.10.4" and "15.10.4" compare equal.
+
+  // Current OMP writes the last seen changelog version to a plain text marker file.
   try {
-    const raw = await Bun.file(join(getAgentDir(), "config.yml")).text();
-    const m = raw.match(/^lastChangelogVersion:\s*(.+)$/m);
-    return m?.[1]?.trim() ?? "unknown";
+    const marker = (await Bun.file(join(dir, "last-changelog-version")).text())
+      .trim()
+      .replace(/^[vV]/, "");
+    if (marker) return marker;
+  } catch {
+    // Missing or unreadable marker: fall through to the legacy config key.
+  }
+
+  // Legacy: older OMP versions stamped the version into config.yml.
+  try {
+    const raw = (await Bun.file(join(dir, "config.yml")).text())
+      .match(/^lastChangelogVersion:\s*(.+)$/m)?.[1]
+      ?.trim()
+      .replace(/^[vV]/, "");
+    return raw || "unknown";
   } catch {
     return "unknown";
   }
