@@ -29,7 +29,7 @@
  * (turn the hook off). Never exits non-zero: a refresh error must not fail the
  * commit.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -162,10 +162,17 @@ function spawnWorker(delayMs: number): void {
   const script = import.meta.path;
   const args = ["--run", `--delay=${delayMs}`];
   const cwd = process.cwd();
-  // `detached` + ignored stdio is what actually frees the hook: a child that
-  // inherits the hook's handles makes git wait for it, so a scheduled refresh
-  // would hold the commit for the whole delay. `Bun.spawn` + `unref()` is not
-  // enough — the child dies with the parent and the refresh never runs.
+  if (process.platform === "win32") {
+    // A worker that inherits the hook's handles makes git wait for it: a
+    // scheduled refresh held a commit for 267s. node's `detached` and Bun's
+    // `stdio: "ignore"` both still left the hook's pipe open; `start /b` with the
+    // worker's own stdio redirected to NUL returns at once.
+    spawnSync("cmd", ["/c", `start "" /b "${process.execPath}" "${script}" ${args.join(" ")} >NUL 2>NUL`], {
+      cwd,
+      stdio: "ignore",
+    });
+    return;
+  }
   spawn(process.execPath, [script, ...args], {
     cwd,
     detached: true,
